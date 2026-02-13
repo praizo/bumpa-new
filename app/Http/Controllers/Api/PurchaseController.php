@@ -4,36 +4,29 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Purchase;
-use App\Models\User;
 use App\Events\PurchaseMade;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
-use Faker\Factory;
+
 class PurchaseController extends Controller
 {
     public function store(Request $request): JsonResponse
     {
         $request->validate([
-            'amount' => 'required|numeric|min:0.01',
+            'amount' => 'required|numeric|min:100',
             'items' => 'sometimes|array'
         ]);
 
         $reference = 'PUR_' . Str::uuid()->toString();
         $user = $request->user();
 
-        if ($request->has('items')) {
-            $items = $request->items;
-        } else {
-            $faker = Factory::create();
-            $items = [
-                [
-                    'name' => $faker->catchPhrase(),
-                    'price' => $request->amount,
-                    'qty' => 1,
-                ]
-            ];
-        }
+        // Atomically update total spend
+        $user->increment('total_spent', $request->amount);
+
+        $items = $request->input('items', [
+            ['name' => 'General Purchase', 'price' => $request->amount, 'qty' => 1]
+        ]);
 
         $purchase = Purchase::create([
             'user_id' => $user->id,
@@ -42,8 +35,17 @@ class PurchaseController extends Controller
             'items' => $items,
         ]);
 
-        // Dispatch event to trigger listeners (CheckAchievements, CheckBadges)
-        PurchaseMade::dispatch($purchase, $user);
+        // Snapshot achievement/badge counts before event chain
+        $achievementsBefore = $user->achievements()->pluck('achievements.id')->toArray();
+        $badgesBefore = $user->badges()->pluck('badges.id')->toArray();
+
+        // Dispatch event — synchronous listeners handle achievements, badges, and cashback
+        PurchaseMade::dispatch($purchase, $user->fresh());
+
+        // Read back newly unlocked items
+        $user->refresh();
+        $newAchievements = $user->achievements()->whereNotIn('achievements.id', $achievementsBefore)->get();
+        $newBadges = $user->badges()->whereNotIn('badges.id', $badgesBefore)->get();
 
         return response()->json([
             'success' => true,
@@ -52,6 +54,8 @@ class PurchaseController extends Controller
                 'purchase_id' => $purchase->id,
                 'reference' => $reference,
                 'amount' => $purchase->amount,
+                'unlocked_achievements' => $newAchievements,
+                'unlocked_badges' => $newBadges,
             ]
         ], 201);
     }

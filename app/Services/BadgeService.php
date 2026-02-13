@@ -2,38 +2,41 @@
 
 namespace App\Services;
 
-use App\Models\Achievement;
 use App\Models\User;
+use App\Repositories\Contracts\AchievementRepositoryInterface;
 use App\Repositories\Contracts\BadgeRepositoryInterface;
 use Illuminate\Support\Collection;
 
 class BadgeService
 {
   public function __construct(
-    protected BadgeRepositoryInterface $badgeRepository
+    protected BadgeRepositoryInterface $badgeRepository,
+    protected AchievementRepositoryInterface $achievementRepository,
   ) {}
 
   public function checkAndUnlock(User $user): Collection
   {
-    $unlocked = collect();
-
     $achievementCount = $user->achievements()->count();
-    $badges = $this->badgeRepository->all();
     $existingBadgeIds = $user->badges()->pluck('badges.id')->toArray();
 
-    foreach ($badges as $badge) {
-      if (in_array($badge->id, $existingBadgeIds)) {
-        continue;
-      }
+    // Only fetch badges the user hasn't unlocked and now qualifies for
+    $qualifyingBadges = $this->badgeRepository->all()
+      ->whereNotIn('id', $existingBadgeIds)
+      ->where('required_achievements', '<=', $achievementCount)
+      ->values();
 
-      // Updated column name: required_achievements
-      if ($achievementCount >= $badge->required_achievements) {
-        $user->badges()->attach($badge->id, ['unlocked_at' => now()]);
-        $unlocked->push($badge);
-      }
+    if ($qualifyingBadges->isEmpty()) {
+      return collect();
     }
 
-    return $unlocked;
+    // Batch attach — single INSERT
+    $toAttach = [];
+    foreach ($qualifyingBadges as $badge) {
+      $toAttach[$badge->id] = ['unlocked_at' => now()];
+    }
+    $user->badges()->attach($toAttach);
+
+    return $qualifyingBadges;
   }
 
   public function getNextBadgeProgress(User $user): array
@@ -43,30 +46,23 @@ class BadgeService
 
     $currentBadge = $user->badges()
       ->orderBy('badges.required_achievements', 'desc')
-      ->get()
-      ->sortByDesc('required_achievements')
       ->first();
 
-    // Calculate progress towards next badge
     $progress = [
       'next_badge' => null,
       'remaining_achievements' => 0,
       'current_badge' => $currentBadge ? $currentBadge->name : 'None',
-      'next_achievement' => null, // New field
+      'next_achievement' => null,
     ];
 
     if ($nextBadge) {
       $progress['next_badge'] = $nextBadge->name;
       $progress['remaining_achievements'] = $nextBadge->required_achievements - $currentCount;
 
-      // Find the NEXT achievement based on spend, excluding unlocked ones
       $totalSpent = $user->total_spent ?? 0;
       $unlockedIds = $user->achievements()->pluck('achievements.id')->toArray();
 
-      $nextAchievement = Achievement::where('required_spend', '>', $totalSpent)
-        ->whereNotIn('id', $unlockedIds)
-        ->orderBy('required_spend', 'asc')
-        ->first();
+      $nextAchievement = $this->achievementRepository->getNextAchievement($totalSpent, $unlockedIds);
 
       if ($nextAchievement) {
         $progress['next_achievement'] = [

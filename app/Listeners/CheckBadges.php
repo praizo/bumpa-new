@@ -5,9 +5,8 @@ namespace App\Listeners;
 use App\Events\AchievementUnlocked;
 use App\Events\BadgeUnlocked;
 use App\Services\BadgeService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
-class CheckBadges implements ShouldQueue
+class CheckBadges
 {
     public function __construct(
         protected BadgeService $badgeService

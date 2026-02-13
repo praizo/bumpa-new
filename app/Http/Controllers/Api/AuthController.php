@@ -29,6 +29,7 @@ class AuthController extends Controller
         return response()->json([
             'access_token' => $token,
             'token_type' => 'Bearer',
+            'user' => $user,
         ]);
     }
 
@@ -52,6 +53,7 @@ class AuthController extends Controller
         return response()->json([
             'access_token' => $token,
             'token_type' => 'Bearer',
+            'user' => $user,
         ]);
     }
 

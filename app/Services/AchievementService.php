@@ -15,26 +15,23 @@ class AchievementService
 
   public function checkAndUnlock(User $user, Purchase $purchase): Collection
   {
-    $unlocked = collect();
-    $achievements = $this->achievementRepository->all();
-    $existingAchievementIds = $user->achievements()->pluck('achievements.id')->toArray();
+    $totalSpent = $user->total_spent;
+    $existingIds = $user->achievements()->pluck('achievements.id')->toArray();
 
-    // Update User's Total Spend
-    $newTotalSpent = $user->purchases()->sum('amount');
-    $user->update(['total_spent' => $newTotalSpent]);
+    // Only fetch achievements the user hasn't unlocked and can now afford
+    $qualifyingAchievements = $this->achievementRepository->getQualifying($totalSpent, $existingIds);
 
-    foreach ($achievements as $achievement) {
-      if (in_array($achievement->id, $existingAchievementIds)) {
-        continue;
-      }
-
-      // Check Spend Threshold
-      if ($newTotalSpent >= $achievement->required_spend) {
-        $user->achievements()->attach($achievement->id, ['unlocked_at' => now()]);
-        $unlocked->push($achievement);
-      }
+    if ($qualifyingAchievements->isEmpty()) {
+      return collect();
     }
 
-    return $unlocked;
+    // Batch attach — single INSERT for all qualifying achievements
+    $toAttach = [];
+    foreach ($qualifyingAchievements as $achievement) {
+      $toAttach[$achievement->id] = ['unlocked_at' => now()];
+    }
+    $user->achievements()->attach($toAttach);
+
+    return $qualifyingAchievements;
   }
 }

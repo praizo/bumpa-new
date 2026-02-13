@@ -3,23 +3,23 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Achievement;
+use App\Models\User;
+use App\Repositories\Contracts\AchievementRepositoryInterface;
 use App\Services\BadgeService;
 use Illuminate\Http\Request;
 
 class LoyaltyController extends Controller
 {
     public function __construct(
-        protected BadgeService $badgeService
+        protected BadgeService $badgeService,
+        protected AchievementRepositoryInterface $achievementRepository,
     ) {}
 
-    public function show(Request $request, $userId)
+    public function show(Request $request, User $user)
     {
-        if ($request->user()->id != $userId) {
+        if ($request->user()->id !== $user->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-
-        $user = $request->user();
 
         // Eager load relations
         $user->load(['achievements', 'badges']);
@@ -27,7 +27,7 @@ class LoyaltyController extends Controller
         $progress = $this->badgeService->getNextBadgeProgress($user);
 
         // Get all achievements to determine which are locked
-        $allAchievements = Achievement::all();
+        $allAchievements = $this->achievementRepository->all();
         $unlockedIds = $user->achievements->pluck('id')->toArray();
         $nextAvailable = $allAchievements->whereNotIn('id', $unlockedIds)
             ->values()
@@ -45,9 +45,10 @@ class LoyaltyController extends Controller
             'current_badge' => $progress['current_badge'],
             'next_badge' => $progress['next_badge'],
             'remaining_to_unlock_next_badge' => $progress['remaining_achievements'],
-            'next_achievement_progress' => $progress['next_achievement'], // New field for spend info
+            'next_achievement_progress' => $progress['next_achievement'],
         ]);
     }
+
     public function notifications(Request $request)
     {
         return response()->json([

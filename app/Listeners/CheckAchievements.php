@@ -5,9 +5,8 @@ namespace App\Listeners;
 use App\Events\AchievementUnlocked;
 use App\Events\PurchaseMade;
 use App\Services\AchievementService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
-class CheckAchievements implements ShouldQueue
+class CheckAchievements
 {
     public function __construct(
         protected AchievementService $achievementService

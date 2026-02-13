@@ -17,4 +17,20 @@ class AchievementRepository implements AchievementRepositoryInterface
     {
         return Achievement::find($id);
     }
+
+    public function getNextAchievement(float $totalSpent, array $excludeIds): ?Achievement
+    {
+        return Achievement::where('required_spend', '>', $totalSpent)
+            ->whereNotIn('id', $excludeIds)
+            ->orderBy('required_spend', 'asc')
+            ->first();
+    }
+
+    public function getQualifying(float $totalSpent, array $excludeIds): Collection
+    {
+        return Achievement::where('required_spend', '<=', $totalSpent)
+            ->whereNotIn('id', $excludeIds)
+            ->orderBy('required_spend', 'asc')
+            ->get();
+    }
 }
